@@ -1,0 +1,101 @@
+{
+  "id": "fast9",
+  "version": "1.0.0",
+  "description": "冲9节奏：极致经济保护，全期不上人口，靠利息速冲9级",
+  "flow": "fast9",
+  "policy": {
+    "interestPolicy": {
+      "description": "极致经济保护，5-1 前强保 50 金",
+      "thresholds": [
+        { "phase": "2-1", "after": "1-1", "minInterestGold": 50 },
+        { "phase": "3-1", "after": "2-5", "minInterestGold": 50 },
+        { "phase": "4-1", "after": "3-5", "minInterestGold": 50 },
+        { "phase": "5-1", "after": "4-5", "minInterestGold": 20 },
+        { "phase": "5-5", "after": "5-1", "minInterestGold": 0 }
+      ]
+    },
+    "rerollPolicy": {
+      "description": "前中期不 D，5-1 后开始搜",
+      "windows": [
+        { "phase": "5-1", "after": "4-5", "enabled": true, "minGold": 20, "maxCycles": 5 },
+        { "phase": "5-5", "after": "5-1", "enabled": true, "minGold": 0, "maxCycles": 6 },
+        { "phase": "6-1", "after": "5-5", "enabled": true, "minGold": 0, "maxCycles": 8 }
+      ]
+    }
+  },
+  "phaseGoals": [
+    {
+      "phase": "1-1",
+      "priority": 0,
+      "summary": "开局稳场：至少上 1 个可战斗单位，不空场",
+      "targetLevel": null,
+      "minGoldReserve": 0,
+      "reroll": false,
+      "boardTargetCount": 1
+    },
+    {
+      "phase": "1-2",
+      "priority": 0,
+      "summary": "野怪前补战力：优先上满前期可上单位",
+      "targetLevel": null,
+      "minGoldReserve": 0,
+      "reroll": false,
+      "boardTargetCount": 2
+    },
+    {
+      "phase": "2-1",
+      "priority": 1,
+      "summary": "极致保经济，不上人口",
+      "targetLevel": 4,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 4
+    },
+    {
+      "phase": "2-5",
+      "priority": 1,
+      "summary": "5级，保经济",
+      "targetLevel": 5,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 5
+    },
+    {
+      "phase": "3-2",
+      "priority": 2,
+      "summary": "6级，保经济不上",
+      "targetLevel": 6,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 6
+    },
+    {
+      "phase": "3-5",
+      "priority": 2,
+      "summary": "第一次 augment，继续养经济",
+      "targetLevel": 6,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 6,
+      "augmentRecommended": "Economy"
+    },
+    {
+      "phase": "4-1",
+      "priority": 3,
+      "summary": "7级，继续养经济冲8",
+      "targetLevel": 7,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 7
+    },
+    {
+      "phase": "5-1",
+      "priority": 3,
+      "summary": "8级，5-1 开始搜牌补质量",
+      "targetLevel": 8,
+      "minGoldReserve": 20,
+      "reroll": true,
+      "boardTargetCount": 8
+    }
+  ]
+}

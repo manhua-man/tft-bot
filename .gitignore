@@ -1,0 +1,13 @@
+/target
+*.exe
+*.pdb
+*.onnx
+/python/.venv
+/python/__pycache__
+/python/**/__pycache__
+/python/tensorboard
+/python/artifacts
+/node_modules
+*.log
+.DS_Store
+/参考

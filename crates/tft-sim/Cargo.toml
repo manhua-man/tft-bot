@@ -1,0 +1,11 @@
+[package]
+name = "tft-sim"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+tft-domain = { path = "../tft-domain" }
+tft-strategy = { path = "../tft-strategy" }

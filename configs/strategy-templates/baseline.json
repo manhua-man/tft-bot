@@ -1,0 +1,101 @@
+{
+  "id": "baseline",
+  "version": "1.0.0",
+  "description": "默认运营曲线：经济保护型节奏",
+  "flow": "standard",
+  "policy": {
+    "interestPolicy": {
+      "description": "按阶段分配最低利息保护金币",
+      "thresholds": [
+        { "phase": "2-1", "after": "1-1", "minInterestGold": 20 },
+        { "phase": "3-1", "after": "2-5", "minInterestGold": 20 },
+        { "phase": "4-1", "after": "3-5", "minInterestGold": 10 }
+      ]
+    },
+    "rerollPolicy": {
+      "description": "按阶段决定是否开启 D 牌窗口及触发阈值",
+      "windows": [
+        { "phase": "3-2", "after": "3-1", "enabled": true, "minGold": 30, "maxCycles": 4 },
+        { "phase": "4-1", "after": "3-5", "enabled": true, "minGold": 20, "maxCycles": 5 },
+        { "phase": "5-1", "after": "4-5", "enabled": true, "minGold": 10, "maxCycles": 6 },
+        { "phase": "6-1", "after": "5-5", "enabled": true, "minGold": 0, "maxCycles": 8 }
+      ]
+    }
+  },
+  "phaseGoals": [
+    {
+      "phase": "1-1",
+      "priority": 0,
+      "summary": "开局稳场：至少上 1 个可战斗单位，不空场",
+      "targetLevel": null,
+      "minGoldReserve": 0,
+      "reroll": false,
+      "boardTargetCount": 1
+    },
+    {
+      "phase": "1-2",
+      "priority": 0,
+      "summary": "野怪前补战力：优先上满前期可上单位",
+      "targetLevel": null,
+      "minGoldReserve": 0,
+      "reroll": false,
+      "boardTargetCount": 2
+    },
+    {
+      "phase": "2-1",
+      "priority": 1,
+      "summary": "稳经济并补基础前排，避免空场",
+      "targetLevel": 4,
+      "minGoldReserve": 10,
+      "reroll": false,
+      "boardTargetCount": 4
+    },
+    {
+      "phase": "2-5",
+      "priority": 1,
+      "summary": "5级门槛，保持经济保护",
+      "targetLevel": 5,
+      "minGoldReserve": 10,
+      "reroll": false,
+      "boardTargetCount": 5
+    },
+    {
+      "phase": "3-2",
+      "priority": 2,
+      "summary": "提升节奏，保证核心单位与前中期战力",
+      "targetLevel": 6,
+      "minGoldReserve": 6,
+      "reroll": true,
+      "boardTargetCount": 6
+    },
+    {
+      "phase": "3-5",
+      "priority": 2,
+      "summary": "第一次 augment 选择，经济窗口",
+      "targetLevel": 6,
+      "minGoldReserve": 6,
+      "reroll": true,
+      "boardTargetCount": 6,
+      "augmentRecommended": "Combat"
+    },
+    {
+      "phase": "4-1",
+      "priority": 3,
+      "summary": "成型主阵容并处理关键装备挂件",
+      "targetLevel": 7,
+      "minGoldReserve": 4,
+      "reroll": true,
+      "boardTargetCount": 7
+    },
+    {
+      "phase": "4-2",
+      "priority": 3,
+      "summary": "8级目标，D牌全力搜牌，二次 augment",
+      "targetLevel": 8,
+      "minGoldReserve": 0,
+      "reroll": true,
+      "boardTargetCount": 8,
+      "augmentRecommended": "Economy"
+    }
+  ]
+}

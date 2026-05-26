@@ -1,0 +1,102 @@
+{
+  "id": "slowroll",
+  "version": "1.0.0",
+  "description": "慢D节奏：养经济压50，D到三星，质量碾压",
+  "flow": "slowroll",
+  "policy": {
+    "interestPolicy": {
+      "description": "慢D养经济，4-2前强保50金",
+      "thresholds": [
+        { "phase": "2-1", "after": "1-1", "minInterestGold": 50 },
+        { "phase": "3-1", "after": "2-5", "minInterestGold": 50 },
+        { "phase": "4-2", "after": "4-1", "minInterestGold": 30 },
+        { "phase": "5-1", "after": "4-5", "minInterestGold": 10 }
+      ]
+    },
+    "rerollPolicy": {
+      "description": "3-2 和 4-1 各有一段慢D窗口",
+      "windows": [
+        { "phase": "3-2", "after": "3-1", "enabled": true, "minGold": 50, "maxCycles": 3 },
+        { "phase": "4-1", "after": "3-5", "enabled": true, "minGold": 30, "maxCycles": 4 },
+        { "phase": "5-1", "after": "4-5", "enabled": true, "minGold": 10, "maxCycles": 5 },
+        { "phase": "6-1", "after": "5-5", "enabled": true, "minGold": 0, "maxCycles": 8 }
+      ]
+    }
+  },
+  "phaseGoals": [
+    {
+      "phase": "1-1",
+      "priority": 0,
+      "summary": "开局稳场：至少上 1 个可战斗单位，不空场",
+      "targetLevel": null,
+      "minGoldReserve": 0,
+      "reroll": false,
+      "boardTargetCount": 1
+    },
+    {
+      "phase": "1-2",
+      "priority": 0,
+      "summary": "野怪前补战力：优先上满前期可上单位",
+      "targetLevel": null,
+      "minGoldReserve": 0,
+      "reroll": false,
+      "boardTargetCount": 2
+    },
+    {
+      "phase": "2-1",
+      "priority": 1,
+      "summary": "养经济，强保50金以上",
+      "targetLevel": 4,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 4
+    },
+    {
+      "phase": "2-5",
+      "priority": 1,
+      "summary": "5级，保持50金经济",
+      "targetLevel": 5,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 5
+    },
+    {
+      "phase": "3-2",
+      "priority": 2,
+      "summary": "6级，3-2 慢D搜三星",
+      "targetLevel": 6,
+      "minGoldReserve": 50,
+      "reroll": true,
+      "boardTargetCount": 6
+    },
+    {
+      "phase": "3-5",
+      "priority": 2,
+      "summary": "第一次 augment，保持经济",
+      "targetLevel": 6,
+      "minGoldReserve": 50,
+      "reroll": false,
+      "boardTargetCount": 6,
+      "augmentRecommended": "Economy"
+    },
+    {
+      "phase": "4-1",
+      "priority": 3,
+      "summary": "7级，4-1 再次慢D搜质量",
+      "targetLevel": 7,
+      "minGoldReserve": 30,
+      "reroll": true,
+      "boardTargetCount": 7
+    },
+    {
+      "phase": "4-2",
+      "priority": 3,
+      "summary": "8级，all-in 搜关键三星",
+      "targetLevel": 8,
+      "minGoldReserve": 0,
+      "reroll": true,
+      "boardTargetCount": 8,
+      "augmentRecommended": "Economy"
+    }
+  ]
+}

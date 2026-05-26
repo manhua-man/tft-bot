@@ -1,0 +1,66 @@
+[
+  {
+    "incorrect": ["艾尼"],
+    "correct": "Anivia"
+  },
+  {
+    "incorrect": ["贝亚", "贝薺亚", "贝菅亚"],
+    "correct": "Briar"
+  },
+  {
+    "incorrect": ["德萊文"],
+    "correct": "Draven"
+  },
+  {
+    "incorrect": ["01艾克", "02艾克"],
+    "correct": "Ekko"
+  },
+  {
+    "incorrect": ["膂朗克"],
+    "correct": "Gangplank"
+  },
+  {
+    "incorrect": ["洛伊"],
+    "correct": "Illaoi"
+  },
+  {
+    "incorrect": ["嘉文", "01嘉文"],
+    "correct": "JarvanIV"
+  },
+  {
+    "incorrect": ["金克"],
+    "correct": "Jinx"
+  },
+  {
+    "incorrect": ["米利欧0"],
+    "correct": "Milio"
+  },
+  {
+    "incorrect": ["克塞"],
+    "correct": "RekSai"
+  },
+  {
+    "incorrect": ["薇恩1"],
+    "correct": "Vayne"
+  },
+  {
+    "incorrect": ["厄斐"],
+    "correct": "Aphelios"
+  },
+  {
+    "incorrect": ["磊文四世"],
+    "correct": "JarvanIV"
+  },
+  {
+    "incorrect": ["诺提斯"],
+    "correct": "Nautilus"
+  },
+  {
+    "incorrect": ["02妮蔻"],
+    "correct": "Neeko"
+  },
+  {
+    "incorrect": ["豢多医生"],
+    "correct": "DrMundo"
+  }
+]

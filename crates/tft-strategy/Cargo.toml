@@ -1,0 +1,11 @@
+[package]
+name = "tft-strategy"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+ort = "2.0.0-rc.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tft-domain = { path = "../tft-domain" }

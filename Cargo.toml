@@ -1,0 +1,31 @@
+[workspace]
+members = [
+  "crates/tft-domain",
+  "crates/tft-executor",
+  "crates/tft-sim",
+  "crates/tft-strategy",
+  "crates/tft-env",
+  "crates/tft-eval",
+  "apps/agent-cli",
+  "apps/executor-probe",
+  "apps/runtime-observe",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+authors = ["tft-bot"]
+
+[workspace.dependencies]
+anyhow = "1.0"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+tft-domain = { path = "crates/tft-domain" }
+tft-sim = { path = "crates/tft-sim" }
+tft-strategy = { path = "crates/tft-strategy" }
+tft-env = { path = "crates/tft-env" }
+tft-executor = { path = "crates/tft-executor" }

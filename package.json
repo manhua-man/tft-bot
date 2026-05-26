@@ -1,0 +1,16 @@
+{
+  "name": "tft-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TFT auto-play bot: Rust core + Python RL (SB3 PPO)",
+  "scripts": {
+    "cargo:test": "cargo test --workspace",
+    "cargo:build": "cargo build --workspace",
+    "cargo:clippy": "cargo clippy --workspace -- -D warnings",
+    "cargo:fmt": "cargo fmt --all -- --check",
+    "rl:train": "cd python && python -m tft_bot_rl.train_ppo",
+    "rl:smoke": "cd python && python -m tft_bot_rl.train_ppo --smoke",
+    "agent:sim": "cargo run -p agent-cli -- sim-env",
+    "check:all": "npm run cargo:fmt && npm run cargo:clippy && npm run cargo:test"
+  }
+}

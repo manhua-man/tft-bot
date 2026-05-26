@@ -1,0 +1,350 @@
+use std::io::{self, BufRead, Write};
+
+mod onnx_infer;
+
+use tft_env::sim_env::SimEnv;
+use tft_env::{DiscreteAction, EpisodeOutcome, StepResult, TftEnv};
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Parse args manually: expect "sim-env --seed N [--max-rounds M]"
+    let mut seed: u64 = 0;
+    let mut max_rounds: u8 = 6;
+    let mut mode = "";
+    let mut model_path = String::new();
+    let mut max_steps: usize = 100;
+    let mut trajectory_path = String::new();
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "sim-env" => {
+                mode = "sim-env";
+            }
+            "run-bot" => {
+                mode = "run-bot";
+            }
+            "--seed" => {
+                i += 1;
+                if i < args.len() {
+                    seed = args[i].parse().expect("invalid seed value");
+                }
+            }
+            "--max-rounds" => {
+                i += 1;
+                if i < args.len() {
+                    max_rounds = args[i].parse().expect("invalid max-rounds value");
+                }
+            }
+            "--model" => {
+                i += 1;
+                if i < args.len() {
+                    model_path = args[i].clone();
+                }
+            }
+            "--max-steps" => {
+                i += 1;
+                if i < args.len() {
+                    max_steps = args[i].parse().expect("invalid max-steps value");
+                }
+            }
+            "--trajectory" => {
+                i += 1;
+                if i < args.len() {
+                    trajectory_path = args[i].clone();
+                }
+            }
+            "--help" | "-h" => {
+                eprintln!("Usage: agent-cli <mode> [options]");
+                eprintln!();
+                eprintln!("Modes:");
+                eprintln!("  sim-env    Sim environment (JSON Lines protocol)");
+                eprintln!("  run-bot    Real machine bot (ONNX inference + executor)");
+                eprintln!();
+                eprintln!("Options:");
+                eprintln!("  --seed N         Random seed (sim-env)");
+                eprintln!("  --max-rounds M   Max rounds per episode (sim-env, default: 6)");
+                eprintln!("  --model PATH     ONNX model path (run-bot)");
+                eprintln!("  --max-steps N    Max steps for run-bot (default: 100)");
+                eprintln!("  --trajectory P   Trajectory JSONL output path (run-bot)");
+                std::process::exit(0);
+            }
+            other => {
+                eprintln!("Unknown argument: {other}");
+                eprintln!("Usage: agent-cli sim-env --seed N [--max-rounds M]");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+
+    if mode == "sim-env" {
+        run_sim_env(seed, max_rounds);
+    } else if mode == "run-bot" {
+        if model_path.is_empty() {
+            eprintln!("Error: --model PATH required for run-bot mode");
+            std::process::exit(1);
+        }
+        if let Err(e) = run_bot(&model_path, max_steps, &trajectory_path) {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    } else {
+        eprintln!("Usage: agent-cli <sim-env|run-bot> [options]");
+        std::process::exit(1);
+    }
+}
+
+fn run_sim_env(seed: u64, max_rounds: u8) {
+    let mut env = SimEnv::new(max_rounds);
+    let obs = env.reset(seed);
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    // Send initial reset observation
+    emit_json(
+        &mut out,
+        &ResetMsg {
+            msg_type: "reset",
+            obs: &obs,
+        },
+    );
+
+    // Read stdin line by line
+    let stdin = io::stdin();
+    let mut next_seed = seed.wrapping_add(1);
+
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break, // EOF
+        };
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Handle special command: "reset"
+        if trimmed == "reset" {
+            let obs = env.reset(next_seed);
+            next_seed = next_seed.wrapping_add(1);
+            emit_json(
+                &mut out,
+                &ResetMsg {
+                    msg_type: "reset",
+                    obs: &obs,
+                },
+            );
+            continue;
+        }
+
+        // Handle special command: "reset SEED"
+        if let Some(rest) = trimmed.strip_prefix("reset ") {
+            let new_seed: u64 = match rest.trim().parse() {
+                Ok(s) => s,
+                Err(_) => {
+                    eprintln!("Invalid seed in reset command: {}", rest);
+                    continue;
+                }
+            };
+            let obs = env.reset(new_seed);
+            next_seed = new_seed.wrapping_add(1);
+            emit_json(
+                &mut out,
+                &ResetMsg {
+                    msg_type: "reset",
+                    obs: &obs,
+                },
+            );
+            continue;
+        }
+
+        // Parse action id
+        let action_id: u16 = match trimmed.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!(
+                    "Invalid input (expected action id 0..{}): {}",
+                    DiscreteAction::count() - 1,
+                    trimmed
+                );
+                continue;
+            }
+        };
+
+        let action = match DiscreteAction::from_u16(action_id) {
+            Some(a) => a,
+            None => {
+                eprintln!(
+                    "Action id {} out of range (0..{})",
+                    action_id,
+                    DiscreteAction::count() - 1
+                );
+                continue;
+            }
+        };
+
+        // Execute step
+        let result = env.step(action);
+
+        emit_json(
+            &mut out,
+            &StepMsg {
+                msg_type: "step",
+                result: &result,
+            },
+        );
+
+        // If terminated/truncated, send outcome
+        if result.terminated || result.truncated {
+            let placement = result
+                .info
+                .get("placement")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(8.0) as f32;
+            let final_hp = result
+                .info
+                .get("final_hp")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u16;
+            let round_survived = result
+                .info
+                .get("round")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u8;
+
+            let outcome = EpisodeOutcome {
+                seed,
+                total_reward: result.reward,
+                steps: 1,
+                placement,
+                final_hp,
+                round_survived,
+            };
+            emit_json(
+                &mut out,
+                &OutcomeMsg {
+                    msg_type: "outcome",
+                    outcome: &outcome,
+                },
+            );
+        }
+    }
+}
+
+// -- Helper ------------------------------------------------------------------
+
+fn emit_json<W: Write, T: serde::Serialize>(out: &mut W, value: &T) {
+    writeln!(out, "{}", serde_json::to_string(value).unwrap()).unwrap();
+    out.flush().unwrap();
+}
+
+// -- Message types for JSON serialization ------------------------------------
+
+#[derive(serde::Serialize)]
+struct ResetMsg<'a> {
+    #[serde(rename = "type")]
+    msg_type: &'a str,
+    obs: &'a tft_env::Obs,
+}
+
+#[derive(serde::Serialize)]
+struct StepMsg<'a> {
+    #[serde(rename = "type")]
+    msg_type: &'a str,
+    result: &'a StepResult,
+}
+
+#[derive(serde::Serialize)]
+struct OutcomeMsg<'a> {
+    #[serde(rename = "type")]
+    msg_type: &'a str,
+    outcome: &'a EpisodeOutcome,
+}
+
+// -- run-bot mode ---------------------------------------------------------------
+
+fn run_bot(model_path: &str, max_steps: usize, trajectory_path: &str) -> anyhow::Result<()> {
+    use onnx_infer::OnnxPolicy;
+    use tft_domain::UserPreset;
+    use tft_executor::correction::OcrCorrectionDict;
+    use tft_executor::ocr::StubOcr;
+    use tft_executor::input::StubInput;
+    use tft_executor::window::StubWindowDiscovery;
+    use tft_env::real_env::RealEnv;
+
+    eprintln!("[run-bot] Loading ONNX model from {model_path}...");
+    let mut policy = OnnxPolicy::load(model_path)?;
+    eprintln!("[run-bot] Model loaded. Starting real-machine loop (max_steps={max_steps}).");
+
+    let traj = if trajectory_path.is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(trajectory_path))
+    };
+
+    let mut env = RealEnv::new(
+        StubWindowDiscovery,
+        StubOcr,
+        StubInput,
+        OcrCorrectionDict::new(),
+        UserPreset::default(),
+        max_steps,
+        traj,
+    );
+
+    let obs = env.reset(0);
+    eprintln!("[run-bot] Initial observation received. Entering control loop.");
+
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let mut total_reward = 0.0f32;
+    let mut step = 0usize;
+
+    let mut current_obs = obs;
+    loop {
+        // Infer action from ONNX model
+        let action_id = policy.predict_action(&current_obs)?;
+        let action = DiscreteAction::from_u16(action_id).unwrap_or(DiscreteAction::Noop);
+
+        // Execute
+        let result = env.step(action);
+        total_reward += result.reward;
+        step += 1;
+
+        emit_json(
+            &mut out,
+            &StepMsg {
+                msg_type: "step",
+                result: &result,
+            },
+        );
+
+        if result.terminated || result.truncated {
+            let outcome = EpisodeOutcome {
+                seed: 0,
+                total_reward,
+                steps: step,
+                placement: 0.0, // unknown in real mode
+                final_hp: 0,
+                round_survived: step as u8,
+            };
+            emit_json(
+                &mut out,
+                &OutcomeMsg {
+                    msg_type: "outcome",
+                    outcome: &outcome,
+                },
+            );
+            break;
+        }
+
+        current_obs = result.obs;
+    }
+
+    eprintln!("[run-bot] Done. {step} steps, total_reward={total_reward:.2}");
+    Ok(())
+}

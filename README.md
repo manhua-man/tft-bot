@@ -32,15 +32,25 @@ cd python && python -m tft_bot_rl.train_ppo --total-steps 100000
 cargo test --workspace
 ```
 
-## Milestones
+## Milestones & roadmap
+
+- **M0–M4** (what is built / what proof is missing): [docs/COMPLETION.md](docs/COMPLETION.md)  
+- **Phases 0–4** (recommended build order, lobby → RL): [docs/ROADMAP.md](docs/ROADMAP.md)
 
 | Milestone | Goal | Status |
 |-----------|------|--------|
-| M0 | Scaffold + Sim Gym + PPO smoke | ✓ |
-| M1 | PPO beats RuleTeacher on fixed seeds | planned |
-| M2 | Real machine observation + JCCT executor | planned |
-| M3 | RealEnv shop-only + ONNX deploy | planned |
-| M4 | Full autopilot + sparse RL | planned |
+| M0 | Scaffold + Sim Gym + PPO smoke | Done |
+| M1 | PPO beats RuleTeacher on 32 fixed seeds | Done (`npm run rl:m1` → `python/artifacts/eval/m1-report.json`) |
+| M2 | Real window + OCR + JCCT executor | Implemented; **run real-machine SOP** on CN client |
+| M3 | RealEnv shop-only + ONNX `run-bot` | Wired; needs M2 shop read/buy verified on machine |
+| M4 | Full autopilot + sparse RL on client | Sim/redline/curriculum only until M2–M3 |
+
+## Docs
+
+- [ROADMAP.md](docs/ROADMAP.md) — phased product plan (meta → in-game → RL → loop)  
+- [COMPLETION.md](docs/COMPLETION.md) — milestone acceptance status  
+- [STUBS_AND_M2_M4.md](docs/STUBS_AND_M2_M4.md) — what “skeleton + Stub” means (plain language)  
+- [REFERENCES.md](docs/REFERENCES.md) — OCR/script bots, RL sims, tools (no dependency on F:/TFT)
 
 ## Project Structure
 
@@ -90,9 +100,9 @@ F:/tft-bot/
 | 11-13 | Choose augment 0-2 |
 | 14 | Level up |
 
-## Migrated From
+## History
 
-[F:/TFT](../TFT) — read-only source. See [docs/MIGRATION_FROM_TFT.md](docs/MIGRATION_FROM_TFT.md).
+Code was initially forked from a dual-product TFT monorepo; that tree is **removed**. See [docs/MIGRATION_FROM_TFT.md](docs/MIGRATION_FROM_TFT.md) for a historical path map only.
 
 ## Compliance
 

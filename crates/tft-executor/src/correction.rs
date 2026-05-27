@@ -1,14 +1,14 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 pub struct OcrCorrectionDict {
-    corrections: HashMap<String, String>,
+    corrections: BTreeMap<String, String>,
 }
 
 impl OcrCorrectionDict {
     pub fn new() -> Self {
         Self {
-            corrections: HashMap::new(),
+            corrections: BTreeMap::new(),
         }
     }
 
@@ -23,7 +23,7 @@ impl OcrCorrectionDict {
             Err(_) => return Self::new(),
         };
 
-        let mut corrections = HashMap::with_capacity(entries.len());
+        let mut corrections = BTreeMap::new();
         for entry in entries {
             for wrong in entry.incorrect {
                 let key = normalize_for_lookup(&wrong);
@@ -44,6 +44,12 @@ impl OcrCorrectionDict {
     }
 
     pub fn correct(&self, raw: &str) -> String {
+        // Guard: empty/whitespace text should not be corrected —
+        // fuzzy matching could turn "" into a known name like "JarvanIV".
+        if raw.trim().is_empty() {
+            return raw.to_string();
+        }
+
         let key = normalize_for_lookup(raw);
         if let Some(corrected) = self.corrections.get(&key) {
             return corrected.clone();

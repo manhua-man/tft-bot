@@ -2,12 +2,15 @@
 members = [
   "crates/tft-domain",
   "crates/tft-executor",
+  "crates/tft-meta",
   "crates/tft-sim",
   "crates/tft-strategy",
   "crates/tft-env",
   "crates/tft-eval",
   "apps/agent-cli",
   "apps/executor-probe",
+  "apps/lcu-probe",
+  "apps/queue-helper",
   "apps/runtime-observe",
 ]
 resolver = "2"

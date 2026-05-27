@@ -26,7 +26,13 @@ impl<E: OcrEngine> ShopReader<E> {
             let (x, y, w, h) = scale_rect(window, *region);
             let cropped = crop_region(&frame, x, y, w, h);
             let ocr_result = self.ocr.recognize(&cropped)?;
-            let corrected = self.corrections.correct(&ocr_result.text);
+            // Skip correction for empty or very low confidence reads —
+            // prevents empty slots from being "corrected" into known names.
+            let corrected = if ocr_result.text.trim().is_empty() || ocr_result.confidence < 0.15 {
+                ocr_result.text.clone()
+            } else {
+                self.corrections.correct(&ocr_result.text)
+            };
             slots.push(ShopSlotReadout {
                 index: i as u8,
                 raw_text: ocr_result.text,

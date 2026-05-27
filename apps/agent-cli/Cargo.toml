@@ -15,3 +15,11 @@ serde_json = "1.0"
 tft-domain = { path = "../../crates/tft-domain" }
 tft-env = { path = "../../crates/tft-env" }
 tft-executor = { path = "../../crates/tft-executor" }
+tft-meta = { path = "../../crates/tft-meta" }
+
+[features]
+default = []
+win_window = ["tft-executor/win_window"]
+ocr_winrt = ["tft-executor/ocr_winrt"]
+input_sim = ["tft-executor/input_sim"]
+real = ["win_window", "ocr_winrt", "input_sim"]

@@ -10,13 +10,22 @@ use tft_executor::shop::ShopReader;
 use tft_executor::window::{GameWindow, WindowDiscovery};
 use tft_executor::ShopSlotReadout;
 
-use crate::{DiscreteAction, Obs, StepResult, TftEnv};
+use tft_executor::backend::ExecutorBackend;
 
-/// Real-machine shop-only environment wrapping tft-executor.
+use crate::{CurriculumPhase, DiscreteAction, Obs, StepResult, TftEnv};
+
+/// Type alias for RealEnv using trait objects (from ExecutorBackend).
+pub type RealEnvBox =
+    RealEnv<Box<dyn WindowDiscovery>, Box<dyn OcrEngine>, Box<dyn InputDispatcher>>;
+
+/// Real-machine environment wrapping tft-executor.
 ///
-/// Only exposes shop-related actions: Noop, BuySlot0-4, Reroll.
-/// All other actions receive -1.0 penalty (illegal in shop-only mode).
+/// Supports actions based on the current curriculum phase:
+/// - ShopOnly: Noop, BuySlot0-4, Reroll
+/// - ShopEconomy: + BuyXp, SellWeakest, HoldGold
+/// - Full: all 35 actions
 ///
+/// Actions outside the current curriculum phase receive -1.0 penalty.
 /// The episode never terminates on its own (the real game continues).
 /// Use `--max-steps` or an external timeout to end episodes.
 pub struct RealEnv<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> {
@@ -32,6 +41,8 @@ pub struct RealEnv<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> {
     trajectory_path: Option<PathBuf>,
     last_shop: Vec<ShopSlotReadout>,
     last_gold: Option<u16>,
+    /// Current curriculum phase — controls which actions are legal.
+    curriculum_phase: CurriculumPhase,
 }
 
 impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> RealEnv<W, O, I> {
@@ -57,7 +68,36 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> RealEnv<W, O, I> {
             trajectory_path,
             last_shop: Vec::new(),
             last_gold: None,
+            curriculum_phase: CurriculumPhase::ShopOnly,
         }
+    }
+
+    /// Create a RealEnv from an ExecutorBackend (convenience for trait-object mode).
+    pub fn from_backend(
+        backend: ExecutorBackend,
+        preset: UserPreset,
+        max_steps: usize,
+        trajectory_path: Option<PathBuf>,
+    ) -> RealEnvBox {
+        RealEnv::new(
+            backend.discovery,
+            backend.ocr,
+            backend.input,
+            backend.corrections,
+            preset,
+            max_steps,
+            trajectory_path,
+        )
+    }
+
+    /// Set the curriculum phase (controls legal_mask).
+    pub fn set_curriculum_phase(&mut self, phase: CurriculumPhase) {
+        self.curriculum_phase = phase;
+    }
+
+    /// Get the current curriculum phase.
+    pub fn curriculum_phase(&self) -> CurriculumPhase {
+        self.curriculum_phase
     }
 
     fn make_obs_from_readout(&self, shop: &[ShopSlotReadout], gold: Option<u16>) -> Obs {
@@ -87,9 +127,9 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> RealEnv<W, O, I> {
             }
         }
 
-        // Phase: assume shop economy (we're in shop-only mode)
+        // Phase one-hot encoding
         let mut phase = vec![0.0f32; 7];
-        phase[2] = 1.0; // ShopEconomy
+        phase[2] = 1.0; // ShopEconomy (default for real mode)
 
         // Flags: bench_full=0, can_level=1, can_reroll=1, pending_augment=0
         let flags = vec![0.0, 1.0, 1.0, 0.0];
@@ -104,7 +144,14 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> RealEnv<W, O, I> {
         }
     }
 
-    fn record_trajectory(&self, action: DiscreteAction, reward: f32, shop: &[ShopSlotReadout]) {
+    fn record_trajectory(
+        &self,
+        action: DiscreteAction,
+        reward: f32,
+        shop: &[ShopSlotReadout],
+        phase: &str,
+        verified: Option<bool>,
+    ) {
         let Some(ref path) = self.trajectory_path else {
             return;
         };
@@ -114,6 +161,8 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> RealEnv<W, O, I> {
             "reward": reward,
             "gold": self.last_gold,
             "shop": shop.iter().map(|s| &s.corrected_text).collect::<Vec<_>>(),
+            "phase": phase,
+            "verified": verified,
             "timestamp": SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -162,6 +211,26 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
             };
         }
 
+        // Check if action is legal in current curriculum phase
+        let allowed = self.curriculum_phase.allowed_actions();
+        let is_legal = allowed.contains(&action);
+
+        if !is_legal {
+            self.step_count += 1;
+            self.total_reward += -1.0;
+            let obs = self.make_obs_from_readout(&self.last_shop, self.last_gold);
+            return StepResult {
+                obs,
+                reward: -1.0,
+                terminated: self.step_count >= self.max_steps,
+                truncated: self.step_count >= self.max_steps,
+                info: serde_json::json!({
+                    "note": format!("illegal action {:?} in {:?} phase", action, self.curriculum_phase),
+                    "step": self.step_count,
+                }),
+            };
+        }
+
         self.step_count += 1;
         let reward;
         let note;
@@ -198,7 +267,6 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
                 let slot = (action as u16) - 1; // BuySlot0=1 -> slot 0, etc.
                 match self.input.buy_slot(window, slot as u8) {
                     Ok(()) => {
-                        // Check if preferred
                         let preferred = shop.get(slot as usize).map_or(false, |s| {
                             self.preset
                                 .desired_units
@@ -215,7 +283,6 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
                     Err(_e) => {
                         reward = -1.0;
                         note = "buy failed";
-                        // Don't mark as done - might recover
                     }
                 }
             }
@@ -229,14 +296,57 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
                     note = "reroll failed";
                 }
             },
+            DiscreteAction::BuyXp | DiscreteAction::LevelUp => {
+                // Both map to F key in TFT
+                match self.input.buy_xp(window) {
+                    Ok(()) => {
+                        reward = 0.5;
+                        note = "buy_xp";
+                    }
+                    Err(_e) => {
+                        reward = -1.0;
+                        note = "buy_xp failed";
+                    }
+                }
+            }
+            DiscreteAction::SellWeakest | DiscreteAction::SellWeakestBoard => {
+                // Sell unit under cursor (E key)
+                match self.input.sell_hovered(window) {
+                    Ok(()) => {
+                        reward = 0.3;
+                        note = "sell";
+                    }
+                    Err(_e) => {
+                        reward = -1.0;
+                        note = "sell failed";
+                    }
+                }
+            }
+            DiscreteAction::HoldGold => {
+                reward = 0.1;
+                note = "hold_gold";
+            }
             _ => {
+                // Other actions not yet implemented on real machine
                 reward = -1.0;
-                note = "illegal action in shop-only mode";
+                note = "unimplemented action";
             }
         }
 
         self.total_reward += reward;
-        self.record_trajectory(action, reward, &shop);
+        // Determine phase string for trajectory
+        let phase_str = if self.curriculum_phase.allowed_actions().is_empty() {
+            "unknown"
+        } else {
+            "shop" // simplified; phase detector provides real phase in run-afk
+        };
+        // Track verified for buy actions
+        let verified = if matches!(action, DiscreteAction::BuySlot0 | DiscreteAction::BuySlot1 | DiscreteAction::BuySlot2 | DiscreteAction::BuySlot3 | DiscreteAction::BuySlot4) {
+            Some(reward > -0.5) // reward > -0.5 means buy succeeded
+        } else {
+            None
+        };
+        self.record_trajectory(action, reward, &shop, phase_str, verified);
         self.last_shop = shop.clone();
         self.last_gold = gold;
 
@@ -251,6 +361,7 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
             "step": self.step_count,
             "gold": gold,
             "total_reward": self.total_reward,
+            "curriculum": format!("{:?}", self.curriculum_phase),
         });
 
         StepResult {
@@ -267,15 +378,16 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
     }
 
     fn legal_mask(&self) -> Vec<bool> {
+        let allowed = self.curriculum_phase.allowed_actions();
         let mut mask = vec![false; DiscreteAction::count()];
-        // In shop-only mode, only shop actions are legal
-        mask[DiscreteAction::Noop as usize] = true;
-        mask[DiscreteAction::BuySlot0 as usize] = true;
-        mask[DiscreteAction::BuySlot1 as usize] = true;
-        mask[DiscreteAction::BuySlot2 as usize] = true;
-        mask[DiscreteAction::BuySlot3 as usize] = true;
-        mask[DiscreteAction::BuySlot4 as usize] = true;
-        mask[DiscreteAction::Reroll as usize] = true;
+        for action in allowed {
+            // Only include actions that are actually implemented on real machine.
+            // Unimplemented actions (augments, items, positioning, etc.)
+            // silently return -1.0 which creates confusing training signal.
+            if is_real_machine_action(action) {
+                mask[action as usize] = true;
+            }
+        }
         mask
     }
 
@@ -286,4 +398,26 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
     fn is_done(&self) -> bool {
         self.done
     }
+}
+
+/// Check if a DiscreteAction is actually implemented on the real machine.
+///
+/// Unimplemented actions (augments, items, board positioning, etc.)
+/// return -1.0 in step() and should not appear in legal_mask.
+fn is_real_machine_action(action: DiscreteAction) -> bool {
+    matches!(
+        action,
+        DiscreteAction::Noop
+            | DiscreteAction::BuySlot0
+            | DiscreteAction::BuySlot1
+            | DiscreteAction::BuySlot2
+            | DiscreteAction::BuySlot3
+            | DiscreteAction::BuySlot4
+            | DiscreteAction::Reroll
+            | DiscreteAction::BuyXp
+            | DiscreteAction::LevelUp
+            | DiscreteAction::SellWeakest
+            | DiscreteAction::SellWeakestBoard
+            | DiscreteAction::HoldGold
+    )
 }

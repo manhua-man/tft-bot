@@ -36,15 +36,36 @@ impl OnnxPolicy {
         Ok(logits.to_vec())
     }
 
-    /// Get argmax action from logits
+    /// Get argmax action from logits (no masking).
     pub fn predict_action(&mut self, obs: &Obs) -> Result<u16> {
         let logits = self.predict_logits(obs)?;
-        let best = logits
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i as u16)
-            .unwrap_or(0);
-        Ok(best)
+        Ok(argmax_f32(&logits))
     }
+
+    /// Get argmax action from logits, with legal_mask applied.
+    ///
+    /// Illegal actions (mask=false) get -inf before argmax.
+    /// This prevents the agent from repeatedly choosing illegal actions.
+    pub fn predict_action_masked(&mut self, obs: &Obs, legal_mask: &[bool]) -> Result<u16> {
+        let mut logits = self.predict_logits(obs)?;
+
+        // Pad or truncate mask to match logits length
+        for (i, logit) in logits.iter_mut().enumerate() {
+            if i >= legal_mask.len() || !legal_mask[i] {
+                *logit = f32::NEG_INFINITY;
+            }
+        }
+
+        Ok(argmax_f32(&logits))
+    }
+}
+
+/// Get the index of the maximum f32 value. NaN-safe via total_cmp.
+fn argmax_f32(values: &[f32]) -> u16 {
+    values
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(i, _)| i as u16)
+        .unwrap_or(0)
 }

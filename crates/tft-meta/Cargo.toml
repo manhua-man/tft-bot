@@ -1,0 +1,15 @@
+[package]
+name = "tft-meta"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tft-env = { path = "../tft-env" }
+tft-executor = { path = "../tft-executor" }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+base64 = "0.22"

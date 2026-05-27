@@ -14,6 +14,13 @@ pub trait WindowDiscovery {
     fn find_game_window(&self) -> Result<GameWindow>;
 }
 
+/// Blanket impl for Box<dyn WindowDiscovery>
+impl WindowDiscovery for Box<dyn WindowDiscovery> {
+    fn find_game_window(&self) -> Result<GameWindow> {
+        (**self).find_game_window()
+    }
+}
+
 /// Reference layout at 1024x768 (the base resolution for TFT)
 pub const REFERENCE_WIDTH: u32 = 1024;
 pub const REFERENCE_HEIGHT: u32 = 768;

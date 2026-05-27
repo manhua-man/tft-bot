@@ -1,0 +1,108 @@
+# Layout configurations for Chinese server (国服)
+#
+# Each layout defines screen regions in REFERENCE coordinates (1024x768).
+# Use `executor-probe calibrate` to generate/verify these for your resolution.
+#
+# Regions are (left, top, right, bottom) in reference space.
+# They get scaled to the actual window size via `scale_rect()`.
+
+# Default layout at 1024x768 reference
+default_1024x768:
+  resolution: "1024x768"
+  shop_slots:
+    - name: "slot_0"
+      region: [110.0, 685.0, 260.0, 720.0]
+    - name: "slot_1"
+      region: [275.0, 685.0, 425.0, 720.0]
+    - name: "slot_2"
+      region: [440.0, 685.0, 590.0, 720.0]
+    - name: "slot_3"
+      region: [605.0, 685.0, 755.0, 720.0]
+    - name: "slot_4"
+      region: [770.0, 685.0, 920.0, 720.0]
+  gold_region: [860.0, 730.0, 950.0, 760.0]
+  # Health region (for M4 redline)
+  health_region: [475.0, 25.0, 550.0, 50.0]
+  # Round/stage region
+  round_region: [480.0, 5.0, 545.0, 25.0]
+  # Phase indicator region (shop bar area)
+  phase_region: [0.0, 650.0, 1024.0, 768.0]
+  # Augment slots (3 choices during augment rounds)
+  # Approximate center positions for 1024x768
+  augment_slots:
+    - name: "augment_left"
+      region: [170.0, 250.0, 370.0, 420.0]
+      click_center: [270.0, 335.0]
+    - name: "augment_center"
+      region: [390.0, 250.0, 634.0, 420.0]
+      click_center: [512.0, 335.0]
+    - name: "augment_right"
+      region: [654.0, 250.0, 854.0, 420.0]
+      click_center: [754.0, 335.0]
+  # Bench slots (7 bench positions)
+  bench_regions:
+    - [280.0, 570.0, 340.0, 610.0]
+    - [350.0, 570.0, 410.0, 610.0]
+    - [420.0, 570.0, 480.0, 610.0]
+    - [490.0, 570.0, 550.0, 610.0]
+    - [560.0, 570.0, 620.0, 610.0]
+    - [630.0, 570.0, 690.0, 610.0]
+    - [700.0, 570.0, 760.0, 610.0]
+
+# Layout for 1920x1080 (scaled from reference)
+default_1920x1080:
+  resolution: "1920x1080"
+  shop_slots:
+    - name: "slot_0"
+      region: [206.0, 967.0, 487.0, 1017.0]
+    - name: "slot_1"
+      region: [515.0, 967.0, 796.0, 1017.0]
+    - name: "slot_2"
+      region: [824.0, 967.0, 1105.0, 1017.0]
+    - name: "slot_3"
+      region: [1133.0, 967.0, 1414.0, 1017.0]
+    - name: "slot_4"
+      region: [1442.0, 967.0, 1723.0, 1017.0]
+  gold_region: [1610.0, 1031.0, 1778.0, 1073.0]
+  health_region: [890.0, 35.0, 1030.0, 71.0]
+  round_region: [900.0, 7.0, 1021.0, 35.0]
+  phase_region: [0.0, 918.0, 1920.0, 1080.0]
+  augment_slots:
+    - name: "augment_left"
+      region: [318.0, 353.0, 693.0, 593.0]
+      click_center: [506.0, 473.0]
+    - name: "augment_center"
+      region: [730.0, 353.0, 1189.0, 593.0]
+      click_center: [960.0, 473.0]
+    - name: "augment_right"
+      region: [1227.0, 353.0, 1602.0, 593.0]
+      click_center: [1415.0, 473.0]
+  bench_regions:
+    - [525.0, 805.0, 636.0, 862.0]
+    - [656.0, 805.0, 767.0, 862.0]
+    - [787.0, 805.0, 898.0, 862.0]
+    - [918.0, 805.0, 1029.0, 862.0]
+    - [1049.0, 805.0, 1160.0, 862.0]
+    - [1180.0, 805.0, 1291.0, 862.0]
+    - [1311.0, 805.0, 1422.0, 862.0]
+
+# Input mode configuration
+input:
+  # hotkey: use keyboard keys 1-5 for shop slots
+  # mouse: click on shop slot center coordinates
+  # auto: try hotkey first, fall back to mouse
+  mode: "hotkey"
+  # Hotkey mapping for buy/level/reroll
+  hotkeys:
+    buy_slot_1: "1"
+    buy_slot_2: "2"
+    buy_slot_3: "3"
+    buy_slot_4: "4"
+    buy_slot_5: "5"
+    reroll: "d"
+    buy_xp: "f"
+    level_up: "f"
+  # Mouse click delay (ms) between actions
+  click_delay_ms: 50
+  # Foreground window before input
+  ensure_foreground: true

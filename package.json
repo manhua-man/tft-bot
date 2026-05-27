@@ -10,6 +10,9 @@
     "cargo:fmt": "cargo fmt --all -- --check",
     "rl:train": "cd python && python -m tft_bot_rl.train_ppo",
     "rl:smoke": "cd python && python -m tft_bot_rl.train_ppo --smoke",
+    "rl:m1": "cargo build -p agent-cli --release && cd python && python -m tft_bot_rl.train_ppo --total-steps 100000 --agent-cli ../target/release/agent-cli.exe && python -m tft_bot_rl.eval_baselines --seeds 32 --agent-cli ../target/release/agent-cli.exe --ppo-model artifacts/ppo_tft.zip --output artifacts/eval/m1-report.json",
+    "m2:build": "cargo build -p executor-probe -p agent-cli --release --features win_window,ocr_winrt,input_sim",
+    "m2:preflight": "cargo run -p executor-probe --release --features win_window,ocr_winrt,input_sim -- preflight",
     "agent:sim": "cargo run -p agent-cli -- sim-env",
     "check:all": "npm run cargo:fmt && npm run cargo:clippy && npm run cargo:test"
   }

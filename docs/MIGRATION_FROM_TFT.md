@@ -1,6 +1,8 @@
-# Migration from F:/TFT
+# Migration from F:/TFT（历史记录）
 
-## Path Mapping
+> **2026-05-27**：原 monorepo `F:/TFT` 已删除。本文件仅保留「当初从哪拷了什么」的对照；**后续 M2 真机实现只能在 `F:/tft-bot` 内新写**，不能指望再迁 `tft-runtime-win`。
+
+## Path Mapping（一次性迁移，已完成）
 
 | Old Path (F:/TFT) | New Path (F:/tft-bot) | Notes |
 |--------------------|----------------------|-------|

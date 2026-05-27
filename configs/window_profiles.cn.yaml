@@ -1,0 +1,38 @@
+# Window profiles for Chinese server (国服)
+# Used by WinWindowDiscovery to find the game window.
+#
+# title_patterns: substrings to match against window titles (case-insensitive)
+# process_names: expected process names (for reference; not used in EnumWindows matching)
+# min_width / min_height: minimum window dimensions to accept
+
+default:
+  title_patterns:
+    - "英雄联盟"
+    - "League of Legends"
+    - "云顶之弈"
+    - "Teamfight Tactics"
+    - "TFT"
+  process_names:
+    - "League of Legends.exe"
+    - "LeagueClientUx.exe"
+  min_width: 800
+  min_height: 600
+
+# WeGame-specific: sometimes the window title is just "英雄联盟" without version
+wegame:
+  title_patterns:
+    - "英雄联盟"
+  process_names:
+    - "League of Legends.exe"
+  min_width: 800
+  min_height: 600
+
+# International client fallback
+intl:
+  title_patterns:
+    - "League of Legends"
+    - "Teamfight Tactics"
+  process_names:
+    - "League of Legends.exe"
+  min_width: 800
+  min_height: 600

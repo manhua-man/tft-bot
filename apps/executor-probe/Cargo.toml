@@ -9,6 +9,14 @@ serde_json = "1.0"
 tft-domain = { path = "../../crates/tft-domain" }
 tft-executor = { path = "../../crates/tft-executor" }
 
+[features]
+default = []
+win_window = ["tft-executor/win_window"]
+ocr_winrt = ["tft-executor/ocr_winrt"]
+input_sim = ["tft-executor/input_sim"]
+# All real-machine features
+real = ["win_window", "ocr_winrt", "input_sim"]
+
 [[bin]]
 name = "executor-probe"
 path = "src/main.rs"

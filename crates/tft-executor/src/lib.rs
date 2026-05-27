@@ -1,10 +1,24 @@
+pub mod backend;
 pub mod capture;
 pub mod correction;
 pub mod input;
+pub mod lcu_gate;
+pub mod noise;
 pub mod ocr;
+pub mod phase;
 pub mod shop;
 pub mod verify;
 pub mod window;
+pub mod window_validation;
+
+#[cfg(target_os = "windows")]
+pub mod win;
+
+#[cfg(feature = "ocr_winrt")]
+pub mod ocr_winrt;
+
+#[cfg(feature = "input_sim")]
+pub mod input_win;
 
 use serde::{Deserialize, Serialize};
 

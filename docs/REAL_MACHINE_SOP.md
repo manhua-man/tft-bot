@@ -204,10 +204,77 @@ Logs go to `F:/tft-bot/data/executor-logs/`.
 | Phase gate blocks actions | Not in InGame phase | Wait for game to start |
 | All slots noise | Not in shop phase or OCR broken | Check if shop UI is visible |
 
-## M4 Checklist (future)
+## Sprint 1-4 Verification
 
-- [ ] Phase detection (LCU or OCR) working in loop
-- [ ] Full 35-action set with legal_mask per phase
-- [ ] Redline triggers correctly on consecutive failures
-- [ ] `run-match` completes a full game without panic
-- [ ] Curriculum stages 1-3 each run on real client
+### Sprint 1: 买棋可信
+
+```powershell
+# Build
+cargo build -p agent-cli --release --features win_window,input_sim
+
+# Single game with rule policy
+agent-cli run-afk --policy rule --games 1 --max-steps 80 --model dummy --trajectory artifacts/trajectories/s1.jsonl --report artifacts/reports/s1.json
+```
+
+**Pass criteria:**
+- `verified_buys` >= 10 in report
+- Trajectory JSONL has `verified: true` entries matching report count
+- No panics or unhandled errors
+
+### Sprint 2: 阶段与海克斯
+
+```powershell
+agent-cli run-afk --policy rule --games 1 --max-steps 120 --model dummy --trajectory artifacts/trajectories/s2.jsonl --report artifacts/reports/s2.json
+```
+
+**Pass criteria:**
+- `phase_changes` in report contains `ShopPhase`, `Combat`, `Augment`
+- `augment_clicks` >= 2 (of 3 possible augment rounds)
+- No stall redline during Combat phases
+
+### Sprint 3: 多局稳跑
+
+```powershell
+agent-cli run-afk --policy rule --games 3 --max-steps 120 --model dummy --trajectory artifacts/trajectories/g3.jsonl --report artifacts/reports/g3.json
+```
+
+**Pass criteria:**
+- All 3 games complete ingame loop
+- `redline_triggered_count` <= 1
+- Each game has `verified_buys` in report
+
+### Sprint 4: 真机 RL
+
+```powershell
+# 1. Collect rule baseline (5 games)
+npm run s4:collect
+
+# 2. Analyze
+npm run s4:analyze
+
+# 3. Train ONNX model (requires Python + SB3)
+cd python && python -m tft_bot_rl.finetune_real --trajectory ../artifacts/trajectories/batch-rule.jsonl --bc-warmup --epochs 5
+
+# 4. Run ONNX policy
+npm run s4:onnx
+
+# 5. Compare
+npm run s4:compare
+```
+
+**Pass criteria:**
+- `onnx buy_success_rate` >= `rule buy_success_rate` + 5% absolute
+- OR `onnx verified_buys` mean > `rule verified_buys` mean (sample >= 5 games)
+
+## M4 Checklist
+
+- [x] Phase detection (LCU or OCR) working in loop
+- [x] Augment detection via round text OCR (2-1/3-2/4-2)
+- [x] Augment click execution (center slot default)
+- [x] Phase-aware redline (Combat noops don't stall)
+- [x] Redline triggers correctly on consecutive failures
+- [x] `run-match` / `run-afk` completes without panic
+- [x] Config de-hardcoded (TFT_REPO_ROOT, LCU_LOG_DIR)
+- [x] Report includes verified_buys, failed_buys, augment_clicks, phase_changes
+- [ ] Real machine: 3 games completed with rule policy
+- [ ] Real machine: ONNX policy outperforms rule baseline

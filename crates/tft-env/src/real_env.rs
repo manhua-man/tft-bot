@@ -316,7 +316,8 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
                                         .iter()
                                         .any(|d| unit_name_matches(d, &s.corrected_text))
                                 });
-                                reward = if preferred { 2.2 } else { 0.6 };
+                                // Verified buy: base + preferred bonus + verification bonus
+                                reward = if preferred { 2.7 } else { 1.1 };
                                 note = if preferred {
                                     "bought preferred (verified)"
                                 } else {
@@ -326,7 +327,8 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
                             }
                             Ok(_) => {
                                 // Buy input sent but no gold/shop change detected
-                                reward = -0.5;
+                                // Stronger penalty for training signal clarity
+                                reward = -0.8;
                                 note = "buy unverified (no effect detected)";
                                 effect_verified = Some(false);
                             }

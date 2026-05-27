@@ -44,6 +44,12 @@ pub fn gold_region() -> (f32, f32, f32, f32) {
     (860.0, 730.0, 950.0, 760.0)
 }
 
+/// Round/stage text region in reference coordinates (top center of screen)
+/// Shows text like "2-1", "3-2", "4-2" during augment rounds
+pub fn round_region() -> (f32, f32, f32, f32) {
+    (480.0, 5.0, 545.0, 25.0)
+}
+
 /// Scale a reference rect to actual window size
 ///
 /// Returns `(x, y, width, height)` in actual pixel coordinates, where

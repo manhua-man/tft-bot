@@ -77,6 +77,10 @@ pub fn run_afk(
             placement: None,
             redline_triggered: result.redline_reason.is_some(),
             redline_reason: result.redline_reason,
+            verified_buys: result.verified_buys,
+            failed_buys: result.failed_buys,
+            augment_clicks: result.augment_clicks,
+            phase_changes: result.phase_changes,
         })
     })?;
 
@@ -100,10 +104,19 @@ pub fn run_afk(
                 "placement": o.placement,
                 "redline_triggered": o.redline_triggered,
                 "redline_reason": o.redline_reason,
+                "verified_buys": o.verified_buys,
+                "failed_buys": o.failed_buys,
+                "augment_clicks": o.augment_clicks,
+                "phase_changes": o.phase_changes.iter().map(|(s, p)| {
+                    serde_json::json!({"step": s, "phase": p})
+                }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
         "total_steps": outcomes.iter().map(|o| o.steps).sum::<usize>(),
         "total_reward": outcomes.iter().map(|o| o.total_reward).sum::<f32>(),
+        "total_verified_buys": outcomes.iter().map(|o| o.verified_buys).sum::<usize>(),
+        "total_failed_buys": outcomes.iter().map(|o| o.failed_buys).sum::<usize>(),
+        "total_augment_clicks": outcomes.iter().map(|o| o.augment_clicks).sum::<usize>(),
         "avg_steps_per_game": if outcomes.is_empty() { 0.0 } else { outcomes.iter().map(|o| o.steps).sum::<usize>() as f32 / outcomes.len() as f32 },
         "avg_reward_per_game": if outcomes.is_empty() { 0.0 } else { outcomes.iter().map(|o| o.total_reward).sum::<f32>() / outcomes.len() as f32 },
         "redline_triggered_count": outcomes.iter().filter(|o| o.redline_triggered).count(),

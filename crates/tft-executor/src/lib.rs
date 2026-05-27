@@ -22,6 +22,32 @@ pub mod input_win;
 
 use serde::{Deserialize, Serialize};
 
+/// Run a preflight check: window discovery + validation + capture.
+///
+/// Returns Ok(GameWindow) if all checks pass, Err with diagnostic message otherwise.
+/// Used by both executor-probe and ingame loops to ensure the game window is ready.
+pub fn preflight_check() -> anyhow::Result<window::GameWindow> {
+    let discovery = backend::ExecutorBackend::build_discovery_for_preflight();
+    let window = discovery.find_game_window()?;
+
+    // Window validation
+    let validation = window_validation::validate_window(&window);
+    if !validation.ok {
+        anyhow::bail!(
+            "Window validation failed: {}",
+            validation.errors.join("; ")
+        );
+    }
+
+    // Capture test
+    let img = capture::capture_window(&window)?;
+    if let Err(e) = window_validation::validate_capture(&window, img.width(), img.height()) {
+        anyhow::bail!("Capture validation failed: {e}");
+    }
+
+    Ok(window)
+}
+
 /// Result of a shop read operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShopReadout {

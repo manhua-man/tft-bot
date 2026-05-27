@@ -45,6 +45,10 @@ pub struct GameOutcome {
     pub placement: Option<f32>,
     pub redline_reason: Option<String>,
     pub redline_triggered: bool,
+    pub verified_buys: usize,
+    pub failed_buys: usize,
+    pub augment_clicks: usize,
+    pub phase_changes: Vec<(usize, String)>,
 }
 
 /// Meta-FSM that drives the lobby → game → lobby loop.

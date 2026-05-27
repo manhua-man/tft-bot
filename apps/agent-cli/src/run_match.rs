@@ -1,6 +1,18 @@
 use anyhow::Result;
 use tft_env::{DiscreteAction, TftEnv};
 
+/// Result of a single in-game run.
+pub struct InGameResult {
+    pub steps: usize,
+    pub total_reward: f32,
+    pub redline_reason: Option<String>,
+    pub phase_changes: Vec<(usize, String)>,
+    pub lcu_available: bool,
+    pub verified_buys: usize,
+    pub failed_buys: usize,
+    pub augment_clicks: usize,
+}
+
 /// Run a single in-game loop (shared by run-match and run-afk).
 ///
 /// Returns: (steps, total_reward, redline_reason, phase_changes)
@@ -18,7 +30,21 @@ pub fn run_ingame_loop(
     use tft_executor::lcu_gate::LcuGate;
     use tft_executor::phase::{AgentPhase, PhaseDetector, PhaseDetectorConfig};
 
-    // 1. Build backend
+    // 1. Preflight: window + capture validation
+    eprintln!("[ingame] Running preflight check...");
+    match tft_executor::preflight_check() {
+        Ok(window) => {
+            eprintln!(
+                "[ingame] Preflight OK: {} ({}x{})",
+                window.title, window.width, window.height
+            );
+        }
+        Err(e) => {
+            anyhow::bail!("[ingame] Preflight FAILED: {e}");
+        }
+    }
+
+    // 2. Build backend
     let corrections = ExecutorBackend::load_corrections();
     let backend = ExecutorBackend::build_with_corrections(corrections)?;
     if backend.is_real {
@@ -27,7 +53,7 @@ pub fn run_ingame_loop(
         eprintln!("[ingame] Backend: STUB");
     }
 
-    // 2. Preflight: LCU probe
+    // 3. LCU probe
     let lockfile_path = std::env::var("LCU_LOCKFILE")
         .unwrap_or_else(|_| tft_executor::lcu_gate::DEFAULT_LOCKFILE_PATH.to_string());
     let lcu_gate = LcuGate::probe(&lockfile_path);
@@ -37,7 +63,7 @@ pub fn run_ingame_loop(
         eprintln!("[ingame] LCU: unavailable");
     }
 
-    // 3. Phase detector
+    // 4. Phase detector
     let phase_config = PhaseDetectorConfig {
         lockfile_path: lockfile_path.clone(),
         ..Default::default()
@@ -49,12 +75,12 @@ pub fn run_ingame_loop(
         phase_detector.current_phase()
     );
 
-    // 4. Load ONNX model
+    // 5. Load ONNX model
     eprintln!("[ingame] Loading ONNX model from {model_path}...");
     let mut policy = OnnxPolicy::load(model_path)?;
     eprintln!("[ingame] Model loaded.");
 
-    // 5. Create RealEnv with full curriculum
+    // 6. Create RealEnv with full curriculum
     let traj = if trajectory_path.is_empty() {
         None
     } else {
@@ -72,7 +98,7 @@ pub fn run_ingame_loop(
     );
     env.set_curriculum_phase(CurriculumPhase::ShopEconomy);
 
-    // 6. Redline monitor
+    // 7. Redline monitor
     let redline_config = RedlineConfig {
         max_consecutive_blunders: 10,
         max_steps_without_progress: 30,
@@ -80,22 +106,39 @@ pub fn run_ingame_loop(
     };
     let mut redline = RedlineMonitor::new(redline_config);
 
-    // 7. Main loop
+    // 8. Main loop
     let mut obs = env.reset(0);
     let mut step = 0usize;
     let mut total_reward = 0.0f32;
     let mut redline_reason: Option<String> = None;
     let mut phase_changes: Vec<(usize, String)> = Vec::new();
+    let mut verified_buys = 0usize;
+    let mut failed_buys = 0usize;
+    let mut augment_clicks = 0usize;
 
     eprintln!("[ingame] Entering control loop (max_steps={max_steps}).");
 
     loop {
-        // Update phase
+        // Phase detection: LCU + visual (shop readouts + round text)
         phase_detector.update_lcu();
+
+        // Visual phase from shop readouts (every step)
+        let shop_readouts = env.last_shop_readouts();
+        let phase_changed = phase_detector.update_from_shop_readouts(shop_readouts);
+
+        // Round text check every 5 steps (OCR is expensive)
+        if step % 5 == 0 {
+            let round_text = env.read_round_text();
+            if !round_text.is_empty() {
+                phase_detector.update_from_round_text(&round_text);
+            }
+        }
+
         let current_phase = phase_detector.current_phase();
 
         // Log phase changes
-        if phase_changes.is_empty()
+        if phase_changed
+            || phase_changes.is_empty()
             || phase_changes.last().map(|(_, p)| p.as_str()) != Some(&current_phase.to_string())
         {
             phase_changes.push((step, current_phase.to_string()));
@@ -110,7 +153,6 @@ pub fn run_ingame_loop(
             );
             std::thread::sleep(std::time::Duration::from_secs(2));
             phase_detector.update_lcu();
-            // Safety: bail if we've waited too long without entering a game
             if step == 0 && phase_detector.current_phase() == AgentPhase::Idle {
                 if phase_changes.len() > 1 {
                     let first_ts = phase_changes.first().map(|(s, _)| *s).unwrap_or(0);
@@ -128,7 +170,7 @@ pub fn run_ingame_loop(
             break;
         }
 
-        // Infer action
+        // Infer action (policy decides based on legal_mask which respects phase)
         let mask = env.legal_mask();
         let action_id = policy.predict_action_masked(&obs, &mask)?;
         let action = DiscreteAction::from_u16(action_id).unwrap_or(DiscreteAction::Noop);
@@ -138,8 +180,40 @@ pub fn run_ingame_loop(
         total_reward += result.reward;
         step += 1;
 
-        // Check redline (pass u16::MAX for unknown health to avoid false trigger)
-        if let Some(reason) = redline.check(u16::MAX, result.reward, total_reward) {
+        // Track buy verification from info
+        let effect_verified = result.info.get("effect_verified").and_then(|v| v.as_bool());
+        if let Some(verified) = effect_verified {
+            if verified {
+                verified_buys += 1;
+            } else {
+                failed_buys += 1;
+            }
+        }
+
+        // Track augment clicks
+        if matches!(
+            action,
+            DiscreteAction::ChooseAugment0
+                | DiscreteAction::ChooseAugment1
+                | DiscreteAction::ChooseAugment2
+        ) {
+            augment_clicks += 1;
+            eprintln!(
+                "[ingame] Augment chosen: slot {} (step {})",
+                action as u16 - 15,
+                step
+            );
+        }
+
+        // Phase-aware redline check
+        let phase_str = format!("{:?}", current_phase);
+        if let Some(reason) = redline.check_with_phase(
+            u16::MAX,
+            result.reward,
+            total_reward,
+            &phase_str,
+            effect_verified,
+        ) {
             redline_reason = Some(reason);
             eprintln!(
                 "[ingame] REDLINE triggered at step {}: {}",
@@ -157,8 +231,12 @@ pub fn run_ingame_loop(
     }
 
     eprintln!(
-        "[ingame] Done. {} steps, total_reward={:.2}",
-        step, total_reward
+        "[ingame] Done. {} steps, total_reward={:.2}, buys={}/{}, augments={}",
+        step,
+        total_reward,
+        verified_buys,
+        verified_buys + failed_buys,
+        augment_clicks
     );
 
     Ok(InGameResult {
@@ -167,16 +245,10 @@ pub fn run_ingame_loop(
         redline_reason,
         phase_changes,
         lcu_available: lcu_gate.is_available(),
+        verified_buys,
+        failed_buys,
+        augment_clicks,
     })
-}
-
-/// Result of a single in-game run.
-pub struct InGameResult {
-    pub steps: usize,
-    pub total_reward: f32,
-    pub redline_reason: Option<String>,
-    pub phase_changes: Vec<(usize, String)>,
-    pub lcu_available: bool,
 }
 
 /// Run a single in-game loop using rule-based shop policy (no ONNX model).
@@ -192,6 +264,20 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
     use tft_executor::lcu_gate::LcuGate;
     use tft_executor::phase::{AgentPhase, PhaseDetector, PhaseDetectorConfig};
     use tft_meta::rule_shop::RuleShopPolicy;
+
+    // 1. Preflight
+    eprintln!("[ingame-rule] Running preflight check...");
+    match tft_executor::preflight_check() {
+        Ok(window) => {
+            eprintln!(
+                "[ingame-rule] Preflight OK: {} ({}x{})",
+                window.title, window.width, window.height
+            );
+        }
+        Err(e) => {
+            anyhow::bail!("[ingame-rule] Preflight FAILED: {e}");
+        }
+    }
 
     let corrections = ExecutorBackend::load_corrections();
     let backend = ExecutorBackend::build_with_corrections(corrections)?;
@@ -210,7 +296,7 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
     };
     let mut phase_detector = PhaseDetector::new(phase_config);
 
-    let _policy = RuleShopPolicy::Cheapest;
+    let policy = RuleShopPolicy::Cheapest;
 
     let traj = if trajectory_path.is_empty() {
         None
@@ -243,14 +329,30 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
     let mut phase_changes: Vec<(usize, String)> = Vec::new();
     let mut verified_buys = 0usize;
     let mut failed_buys = 0usize;
+    let mut augment_clicks = 0usize;
 
     eprintln!("[ingame-rule] Entering control loop (max_steps={max_steps}).");
 
     loop {
+        // Phase detection: LCU + visual
         phase_detector.update_lcu();
+
+        // Visual phase from shop readouts
+        let shop_readouts = env.last_shop_readouts();
+        let phase_changed = phase_detector.update_from_shop_readouts(shop_readouts);
+
+        // Round text check every 5 steps
+        if step % 5 == 0 {
+            let round_text = env.read_round_text();
+            if !round_text.is_empty() {
+                phase_detector.update_from_round_text(&round_text);
+            }
+        }
+
         let current_phase = phase_detector.current_phase();
 
-        if phase_changes.is_empty()
+        if phase_changed
+            || phase_changes.is_empty()
             || phase_changes.last().map(|(_, p)| p.as_str()) != Some(&current_phase.to_string())
         {
             phase_changes.push((step, current_phase.to_string()));
@@ -267,25 +369,21 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
             break;
         }
 
-        // Use rule policy to choose action based on shop observation
+        // Choose action based on phase
         let action = if current_phase.can_shop() {
-            // Read shop from observation (slot texts are in the obs vector)
-            // For rule policy, we use the legal_mask to find available buy actions
-            let mask = env.legal_mask();
-            // Try cheapest first: BuySlot0-4 are indices 1-5
-            let mut chosen = tft_env::DiscreteAction::Noop;
-            for slot in 0..5u16 {
-                if mask.get(slot as usize + 1).copied().unwrap_or(false) {
-                    chosen = tft_env::DiscreteAction::from_u16(slot + 1)
-                        .unwrap_or(tft_env::DiscreteAction::Noop);
-                    break;
-                }
-            }
-            chosen
-        } else if current_phase == AgentPhase::Augment {
-            // Default: pick center augment (slot 1)
-            tft_env::DiscreteAction::Noop // TODO: click augment slot 1
+            // Read shop slot texts from the environment's last observation
+            let slot_texts: Vec<String> = env
+                .last_shop_readouts()
+                .iter()
+                .map(|s| s.corrected_text.clone())
+                .collect();
+            policy.choose_action(&slot_texts, None)
+        } else if current_phase.can_choose_augment() {
+            // Pick center augment (slot 1)
+            eprintln!("[ingame-rule] Augment round detected, choosing center augment");
+            tft_env::DiscreteAction::ChooseAugment1
         } else {
+            // Combat or unknown — noop
             tft_env::DiscreteAction::Noop
         };
 
@@ -293,23 +391,35 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
         total_reward += result.reward;
         step += 1;
 
-        // Track buy success
-        if matches!(
-            action,
-            tft_env::DiscreteAction::BuySlot0
-                | tft_env::DiscreteAction::BuySlot1
-                | tft_env::DiscreteAction::BuySlot2
-                | tft_env::DiscreteAction::BuySlot3
-                | tft_env::DiscreteAction::BuySlot4
-        ) {
-            if result.reward > -0.5 {
+        // Track buy verification from info
+        let effect_verified = result.info.get("effect_verified").and_then(|v| v.as_bool());
+        if let Some(verified) = effect_verified {
+            if verified {
                 verified_buys += 1;
             } else {
                 failed_buys += 1;
             }
         }
 
-        if let Some(reason) = redline.check(u16::MAX, result.reward, total_reward) {
+        // Track augment clicks
+        if matches!(
+            action,
+            tft_env::DiscreteAction::ChooseAugment0
+                | tft_env::DiscreteAction::ChooseAugment1
+                | tft_env::DiscreteAction::ChooseAugment2
+        ) {
+            augment_clicks += 1;
+        }
+
+        // Phase-aware redline
+        let phase_str = format!("{:?}", current_phase);
+        if let Some(reason) = redline.check_with_phase(
+            u16::MAX,
+            result.reward,
+            total_reward,
+            &phase_str,
+            effect_verified,
+        ) {
             redline_reason = Some(reason);
             eprintln!(
                 "[ingame-rule] REDLINE at step {}: {}",
@@ -327,11 +437,12 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
     }
 
     eprintln!(
-        "[ingame-rule] Done. {} steps, reward={:.2}, buys={}/{}",
+        "[ingame-rule] Done. {} steps, reward={:.2}, buys={}/{}, augments={}",
         step,
         total_reward,
         verified_buys,
-        verified_buys + failed_buys
+        verified_buys + failed_buys,
+        augment_clicks
     );
 
     Ok(InGameResult {
@@ -340,6 +451,9 @@ pub fn run_ingame_loop_rule(trajectory_path: &str, max_steps: usize) -> Result<I
         redline_reason,
         phase_changes,
         lcu_available: lcu_gate.is_available(),
+        verified_buys,
+        failed_buys,
+        augment_clicks,
     })
 }
 
@@ -365,6 +479,9 @@ pub fn run_match(
         "steps": result.steps,
         "total_reward": result.total_reward,
         "redline_reason": result.redline_reason,
+        "verified_buys": result.verified_buys,
+        "failed_buys": result.failed_buys,
+        "augment_clicks": result.augment_clicks,
         "phase_changes": result.phase_changes.iter().map(|(s, p)| {
             serde_json::json!({"step": s, "phase": p})
         }).collect::<Vec<_>>(),

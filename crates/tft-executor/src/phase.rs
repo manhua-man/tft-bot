@@ -76,6 +76,14 @@ impl AgentPhase {
     }
 }
 
+/// Known augment selection rounds in TFT.
+const AUGMENT_ROUNDS: &[&str] = &["2-1", "3-2", "4-2"];
+
+/// Check if a round text string matches a known augment round.
+fn is_augment_round(text: &str) -> bool {
+    AUGMENT_ROUNDS.contains(&text)
+}
+
 impl std::fmt::Display for AgentPhase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
@@ -228,6 +236,52 @@ impl PhaseDetector {
         self.apply_phase_change(new_phase)
     }
 
+    /// Update phase from shop readouts (no OCR needed — uses data already read).
+    ///
+    /// This is the preferred in-loop method: the game loop already reads shop
+    /// data via RealEnv, so we pass it here instead of doing a second OCR pass.
+    ///
+    /// Logic:
+    /// - If any shop slot has non-empty text → ShopPhase
+    /// - If augment round detected (via `update_augment_round`) → stays Augment
+    /// - Otherwise → Combat (no shop text = fighting)
+    pub fn update_from_shop_readouts(&mut self, shop: &[crate::ShopSlotReadout]) -> bool {
+        // If we're already in Augment, don't downgrade to Combat/Shop
+        if self.current_phase == AgentPhase::Augment {
+            return false;
+        }
+
+        let has_shop_text = shop.iter().any(|s| !s.corrected_text.trim().is_empty());
+
+        let new_phase = if has_shop_text {
+            AgentPhase::ShopPhase
+        } else {
+            AgentPhase::Combat
+        };
+
+        self.apply_phase_change(new_phase)
+    }
+
+    /// Update phase from round text OCR (e.g. "2-1", "3-2", "4-2").
+    ///
+    /// Call this when round text is available. If the text matches a known
+    /// augment round, transitions to Augment phase.
+    ///
+    /// Known augment rounds: "2-1", "3-2", "4-2"
+    pub fn update_from_round_text(&mut self, round_text: &str) -> bool {
+        let cleaned = round_text.trim().replace(' ', "");
+        if is_augment_round(&cleaned) {
+            self.apply_phase_change(AgentPhase::Augment)
+        } else {
+            false
+        }
+    }
+
+    /// Get the number of phase changes recorded (for stats).
+    pub fn phase_change_count(&self) -> usize {
+        self.stable_count as usize
+    }
+
     /// Set phase manually (for testing or external control).
     pub fn set_phase(&mut self, phase: AgentPhase) {
         self.current_phase = phase;
@@ -332,6 +386,105 @@ mod tests {
         let detector = PhaseDetector::from_probe(probe, config);
         assert!(detector.is_lcu_available());
         assert_eq!(detector.current_phase(), AgentPhase::ShopPhase);
+    }
+
+    #[test]
+    fn is_augment_round_known_rounds() {
+        assert!(is_augment_round("2-1"));
+        assert!(is_augment_round("3-2"));
+        assert!(is_augment_round("4-2"));
+        assert!(!is_augment_round("1-1"));
+        assert!(!is_augment_round("2-2"));
+        assert!(!is_augment_round("5-1"));
+        assert!(!is_augment_round(""));
+    }
+
+    #[test]
+    fn update_from_shop_readouts_shop_phase() {
+        let probe = LcuProbeResult {
+            available: false,
+            lockfile_path: "/fake".to_string(),
+            lockfile: None,
+            phase: None,
+            error: None,
+        };
+        let config = PhaseDetectorConfig { debounce_ms: 0, ..Default::default() };
+        let mut detector = PhaseDetector::from_probe(probe, config);
+
+        // Non-empty shop text → ShopPhase
+        let slots = vec![
+            crate::ShopSlotReadout { index: 0, raw_text: "亚索".into(), corrected_text: "亚索".into(), confidence: 0.9 },
+            crate::ShopSlotReadout { index: 1, raw_text: "".into(), corrected_text: "".into(), confidence: 0.0 },
+            crate::ShopSlotReadout { index: 2, raw_text: "".into(), corrected_text: "".into(), confidence: 0.0 },
+            crate::ShopSlotReadout { index: 3, raw_text: "".into(), corrected_text: "".into(), confidence: 0.0 },
+            crate::ShopSlotReadout { index: 4, raw_text: "".into(), corrected_text: "".into(), confidence: 0.0 },
+        ];
+        detector.update_from_shop_readouts(&slots);
+        detector.update_from_shop_readouts(&slots); // debounce
+        assert_eq!(detector.current_phase(), AgentPhase::ShopPhase);
+    }
+
+    #[test]
+    fn update_from_shop_readouts_combat() {
+        let probe = LcuProbeResult {
+            available: false,
+            lockfile_path: "/fake".to_string(),
+            lockfile: None,
+            phase: None,
+            error: None,
+        };
+        let config = PhaseDetectorConfig { debounce_ms: 0, ..Default::default() };
+        let mut detector = PhaseDetector::from_probe(probe, config);
+
+        // Empty shop → Combat
+        let empty_slots: Vec<crate::ShopSlotReadout> = (0..5).map(|i| crate::ShopSlotReadout {
+            index: i, raw_text: "".into(), corrected_text: "".into(), confidence: 0.0,
+        }).collect();
+        detector.update_from_shop_readouts(&empty_slots);
+        detector.update_from_shop_readouts(&empty_slots);
+        assert_eq!(detector.current_phase(), AgentPhase::Combat);
+    }
+
+    #[test]
+    fn update_from_round_text_augment() {
+        let probe = LcuProbeResult {
+            available: false,
+            lockfile_path: "/fake".to_string(),
+            lockfile: None,
+            phase: None,
+            error: None,
+        };
+        let config = PhaseDetectorConfig { debounce_ms: 0, ..Default::default() };
+        let mut detector = PhaseDetector::from_probe(probe, config);
+
+        detector.update_from_round_text("2-1");
+        detector.update_from_round_text("2-1");
+        assert_eq!(detector.current_phase(), AgentPhase::Augment);
+    }
+
+    #[test]
+    fn augment_does_not_downgrade_to_combat() {
+        let probe = LcuProbeResult {
+            available: false,
+            lockfile_path: "/fake".to_string(),
+            lockfile: None,
+            phase: None,
+            error: None,
+        };
+        let config = PhaseDetectorConfig { debounce_ms: 0, ..Default::default() };
+        let mut detector = PhaseDetector::from_probe(probe, config);
+
+        // Set to Augment
+        detector.update_from_round_text("3-2");
+        detector.update_from_round_text("3-2");
+        assert_eq!(detector.current_phase(), AgentPhase::Augment);
+
+        // Empty shop should NOT downgrade to Combat
+        let empty_slots: Vec<crate::ShopSlotReadout> = (0..5).map(|i| crate::ShopSlotReadout {
+            index: i, raw_text: "".into(), corrected_text: "".into(), confidence: 0.0,
+        }).collect();
+        detector.update_from_shop_readouts(&empty_slots);
+        assert_eq!(detector.current_phase(), AgentPhase::Augment);
     }
 
     #[test]

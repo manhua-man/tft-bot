@@ -2,7 +2,7 @@
 
 This document separates **what is implemented in the repo** from **what the original M0–M4 plan required as proof**. Update the status column when evidence changes.
 
-Last reviewed: 2026-05-27 (实机：LCU 日志鉴权 + run-afk rule 30 步)
+Last reviewed: 2026-05-28 (Sprint 1-3 代码完成，71 测试全绿，待实机验收)
 
 **Product target (full loop)**: lobby → accept → in-game load → shop/autoplay → trajectory → RL.
 
@@ -15,9 +15,9 @@ Last reviewed: 2026-05-27 (实机：LCU 日志鉴权 + run-afk rule 30 步)
 |-----------|----------------|-------------------|--------|
 | M0 | Sim Gym, `agent-cli`, SB3, CI, tests | `cargo test`, PPO smoke | **Done** |
 | M1 | `REWARD.md`, `eval_baselines.py`, `tft-eval`, training scripts | 32 seeds: PPO > RuleTeacher > Random | **Done** — see `python/artifacts/eval/m1-report.json` (2026-05-27: PASS) |
-| M2 | `tft-executor`, `executor-probe`, `runtime-observe` | Real window + OCR + `effect_verified` on machine | **Accepted (partial)** — 局内买棋循环已跑通；preflight/read-shop 可按 SOP 补签字 |
+| M2 | `tft-executor`, `executor-probe`, `runtime-observe` | Real window + OCR + `effect_verified` on machine | **Sprint 1-3 Done** — preflight 门禁 + verify_buy_effect + RuleShopPolicy cheapest + phase visual + augment click + config de-hardcode；待实机验收 |
 | M3 | `RealEnv`, `run-bot`, ONNX export | Shop-only real env + trajectory with outcomes | **Accepted (partial)** — trajectory + `finetune_real.py`；ONNX 真机对比可选 |
-| M4 | `redline`, curriculum training, expanded `DiscreteAction` in Sim | Full autopilot on real client + sparse RL | **Accepted (partial)** — `run-afk` + redline；多局报告可选 |
+| M4 | `redline`, curriculum training, expanded `DiscreteAction` in Sim | Full autopilot on real client + sparse RL | **Sprint 1-3 Done** — phase-aware redline + augment + multi-game report + config；Sprint 4 (RL) 待实机数据 |
 | M2.5 (meta) | [crates/tft-meta](../crates/tft-meta), `run-afk` | LCU 大厅 + 2999 + 进局 | **Done** — 日志 auth；自动排队/接受/进局（[LCU_CN.md](LCU_CN.md)） |
 
 ## M0 — Scaffold + Sim RL
@@ -129,6 +129,45 @@ Verdict: **PASS** (PPO > RuleTeacher > Random on return; PPO placement much bett
 - Need to run full match on real client
 - Verify: redline triggers correctly, phase changes logged, report JSON written
 - Build: `cargo build -p agent-cli --features win_window,input_sim`
+
+## Sprint 1-3 实施总结 (2026-05-28)
+
+### Sprint 1: 买棋可信
+- `tft_executor::preflight_check()` 共享函数
+- `RealEnv` BuySlot 集成 `verify_buy_effect`（替代 `reward > -0.5` 启发式）
+- `RuleShopPolicy::Cheapest` 接入真实 shop 文本
+- `InGameResult` + `GameOutcome` 新增 `verified_buys`/`failed_buys`
+
+### Sprint 2: 阶段与海克斯
+- `PhaseDetector::update_from_shop_readouts()` 视觉阶段判断
+- `PhaseDetector::update_from_round_text()` 回合 OCR → Augment 检测（2-1/3-2/4-2）
+- `ShopReader::read_round_text()` 顶部回合区域 OCR
+- `ChooseAugment0-2` 在 `RealEnv::step()` 中调用 `click_augment`
+- `RedlineMonitor::check_with_phase()` — Combat noops 不计 stall，未验证购买计 blunder
+
+### Sprint 3: 多局与配置
+- `lcu_gate.rs` 路径去硬编码：`TFT_REPO_ROOT` → artifacts，`LCU_LOG_DIR` → 日志
+- `MetaMode::from_env()` 自动探测（未设置时 probe_lcu → Lcu/Manual）
+- `GameOutcome` 含 `phase_changes` 每局阶段变化
+
+### 验收命令
+
+```powershell
+# Sprint 1: 单买验证
+executor-probe preflight
+executor-probe buy --slot 2
+
+# Sprint 1-3: 一局完整对局
+agent-cli run-afk --policy rule --games 1 --max-steps 120 --model dummy --trajectory artifacts/trajectories/s2.jsonl --report artifacts/reports/s2.json
+
+# Sprint 3: 多局
+agent-cli run-afk --policy rule --games 3 --max-steps 120 --model dummy --trajectory artifacts/trajectories/g3.jsonl --report artifacts/reports/g3.json
+```
+
+### 下一步: Sprint 4 (真机 RL)
+- 批量 JSONL 数据采集
+- `finetune_real.py` 对比 rule vs onnx
+- `run-afk --policy onnx` 验收
 
 ## README sync
 

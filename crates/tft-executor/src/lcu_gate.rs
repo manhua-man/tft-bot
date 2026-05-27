@@ -83,14 +83,25 @@ pub fn resolve_lockfile_path() -> String {
     DEFAULT_LOCKFILE_PATH.to_string()
 }
 
+/// Resolve the artifacts directory path.
+///
+/// Uses TFT_REPO_ROOT env var if set, otherwise uses the current working directory.
+fn artifacts_dir() -> std::path::PathBuf {
+    if let Ok(root) = std::env::var("TFT_REPO_ROOT") {
+        std::path::PathBuf::from(root).join("artifacts")
+    } else {
+        std::path::PathBuf::from("artifacts")
+    }
+}
+
 /// Try to get LCU connection info from saved auth file (created by extract_lcu_auth.py).
 ///
 /// Returns Some((port, token)) if the file exists and is valid.
 pub fn read_saved_auth() -> Option<(u16, String)> {
-    let auth_path = std::path::Path::new("F:/tft-bot/artifacts/lcu-auth.json");
+    let auth_path = artifacts_dir().join("lcu-auth.json");
     if !auth_path.exists() {
         // Try to extract from log files automatically
-        extract_auth_from_logs(auth_path)?;
+        extract_auth_from_logs(&auth_path)?;
     }
     let content = std::fs::read_to_string(auth_path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -99,12 +110,16 @@ pub fn read_saved_auth() -> Option<(u16, String)> {
     Some((port, token))
 }
 
+/// Default log directory for 国服 League Client.
+const DEFAULT_LCU_LOG_DIR: &str = r"G:\WeGameApps\英雄联盟\Game\Logs\LeagueClient Logs";
+
 /// Extract LCU auth from LeagueClientUx log files.
 ///
 /// Searches the Game/Logs directory for the most recent LeagueClientUx.log
 /// and extracts --app-port and --remoting-auth-token from the command line.
 fn extract_auth_from_logs(output_path: &std::path::Path) -> Option<()> {
-    let log_dir = std::path::Path::new(r"G:\WeGameApps\英雄联盟\Game\Logs\LeagueClient Logs");
+    let log_dir_str = std::env::var("LCU_LOG_DIR").unwrap_or_else(|_| DEFAULT_LCU_LOG_DIR.to_string());
+    let log_dir = std::path::Path::new(&log_dir_str);
     if !log_dir.exists() {
         return None;
     }
@@ -289,9 +304,10 @@ pub fn probe_lcu(lockfile_path: &str) -> LcuProbeResult {
         };
         let phase = query_gameflow_phase(&lf);
         let has_phase = phase.is_some();
+        let auth_display = artifacts_dir().join("lcu-auth.json").to_string_lossy().to_string();
         return LcuProbeResult {
             available: has_phase,
-            lockfile_path: "artifacts/lcu-auth.json".to_string(),
+            lockfile_path: auth_display,
             lockfile: Some(lf),
             phase,
             error: if !has_phase {
@@ -427,11 +443,25 @@ pub enum MetaMode {
 }
 
 impl MetaMode {
-    /// `TFT_META_MODE`: unset or `manual` → Manual; `lcu` → Lcu.
+    /// `TFT_META_MODE`: `lcu` → Lcu; `manual` → Manual; unset → auto-detect.
+    ///
+    /// When unset, probes LCU: if available → Lcu, otherwise → Manual.
     pub fn from_env() -> Self {
         match std::env::var("TFT_META_MODE").as_deref() {
             Ok("lcu") => Self::Lcu,
-            _ => Self::Manual,
+            Ok("manual") => Self::Manual,
+            _ => {
+                // Auto-detect: try LCU probe
+                let lockfile = resolve_lockfile_path();
+                let probe = probe_lcu(&lockfile);
+                if probe.available {
+                    eprintln!("[meta] Auto-detected LCU available, using Lcu mode");
+                    Self::Lcu
+                } else {
+                    eprintln!("[meta] LCU not available, using Manual mode");
+                    Self::Manual
+                }
+            }
         }
     }
 }

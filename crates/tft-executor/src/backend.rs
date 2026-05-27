@@ -89,6 +89,16 @@ impl ExecutorBackend {
         }
     }
 
+    /// Build a window discovery for preflight checks (independent of OCR/input).
+    #[cfg(feature = "win_window")]
+    pub fn build_discovery_for_preflight() -> Box<dyn WindowDiscovery> {
+        Self::build_discovery()
+    }
+    #[cfg(not(feature = "win_window"))]
+    pub fn build_discovery_for_preflight() -> Box<dyn WindowDiscovery> {
+        Box::new(StubWindowDiscovery)
+    }
+
     pub fn load_corrections() -> OcrCorrectionDict {
         let path = std::path::Path::new("configs/ocr-corrections.json");
         if path.exists() {

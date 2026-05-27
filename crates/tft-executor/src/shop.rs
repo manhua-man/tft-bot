@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::capture::{capture_window, crop_region};
 use crate::correction::OcrCorrectionDict;
 use crate::ocr::OcrEngine;
-use crate::window::{gold_region, scale_rect, shop_slot_regions, GameWindow};
+use crate::window::{gold_region, round_region, scale_rect, shop_slot_regions, GameWindow};
 use crate::ShopSlotReadout;
 
 pub struct ShopReader<E: OcrEngine> {
@@ -41,6 +41,24 @@ impl<E: OcrEngine> ShopReader<E> {
             });
         }
         Ok(slots)
+    }
+
+    /// Read round/stage text from the game window (e.g. "2-1", "3-2", "4-2").
+    ///
+    /// Returns the raw OCR text from the round region. Used for augment detection.
+    /// Returns empty string if OCR fails or region is unreadable.
+    pub fn read_round_text(&self, window: &GameWindow) -> String {
+        let frame = match capture_window(window) {
+            Ok(f) => f,
+            Err(_) => return String::new(),
+        };
+        let region = round_region();
+        let (x, y, w, h) = scale_rect(window, region);
+        let cropped = crop_region(&frame, x, y, w, h);
+        match self.ocr.recognize(&cropped) {
+            Ok(result) => result.text.trim().to_string(),
+            Err(_) => String::new(),
+        }
     }
 
     /// Read gold value from the game window

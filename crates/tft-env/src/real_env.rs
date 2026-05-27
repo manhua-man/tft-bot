@@ -11,6 +11,7 @@ use tft_executor::window::{GameWindow, WindowDiscovery};
 use tft_executor::ShopSlotReadout;
 
 use tft_executor::backend::ExecutorBackend;
+use tft_executor::verify::verify_buy_effect;
 
 use crate::{CurriculumPhase, DiscreteAction, Obs, StepResult, TftEnv};
 
@@ -88,6 +89,36 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> RealEnv<W, O, I> {
             max_steps,
             trajectory_path,
         )
+    }
+
+    /// Get the last observed shop slot readouts (for rule policy / verification).
+    pub fn last_shop_readouts(&self) -> &[ShopSlotReadout] {
+        &self.last_shop
+    }
+
+    /// Get the last observed gold (for rule policy / verification).
+    pub fn last_gold_value(&self) -> Option<u16> {
+        self.last_gold
+    }
+
+    /// Get the window reference (for preflight / verification).
+    pub fn window(&self) -> Option<&GameWindow> {
+        self.window.as_ref()
+    }
+
+    /// Get a reference to the shop reader (for verify_buy_effect).
+    pub fn shop_reader(&self) -> &ShopReader<O> {
+        &self.shop_reader
+    }
+
+    /// Read round/stage text from the game window (e.g. "2-1", "3-2", "4-2").
+    ///
+    /// Used for augment round detection. Returns empty string if no window or OCR fails.
+    pub fn read_round_text(&self) -> String {
+        match self.window {
+            Some(ref w) => self.shop_reader.read_round_text(w),
+            None => String::new(),
+        }
     }
 
     /// Set the curriculum phase (controls legal_mask).
@@ -234,6 +265,7 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
         self.step_count += 1;
         let reward;
         let note;
+        let mut effect_verified: Option<bool> = None;
 
         // Check window still available
         if self.window.is_none() {
@@ -265,24 +297,51 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
             | DiscreteAction::BuySlot3
             | DiscreteAction::BuySlot4 => {
                 let slot = (action as u16) - 1; // BuySlot0=1 -> slot 0, etc.
+                let gold_before = gold;
+                let shop_before = shop.clone();
                 match self.input.buy_slot(window, slot as u8) {
                     Ok(()) => {
-                        let preferred = shop.get(slot as usize).map_or(false, |s| {
-                            self.preset
-                                .desired_units
-                                .iter()
-                                .any(|d| unit_name_matches(d, &s.corrected_text))
-                        });
-                        reward = if preferred { 2.2 } else { 0.6 };
-                        note = if preferred {
-                            "bought preferred"
-                        } else {
-                            "bought unit"
-                        };
+                        // Verify buy effect via gold/shop change detection
+                        match verify_buy_effect(
+                            &self.shop_reader,
+                            window,
+                            gold_before,
+                            &shop_before,
+                            slot as u8,
+                        ) {
+                            Ok(vr) if vr.effect_verified => {
+                                let preferred = shop_before.get(slot as usize).map_or(false, |s| {
+                                    self.preset
+                                        .desired_units
+                                        .iter()
+                                        .any(|d| unit_name_matches(d, &s.corrected_text))
+                                });
+                                reward = if preferred { 2.2 } else { 0.6 };
+                                note = if preferred {
+                                    "bought preferred (verified)"
+                                } else {
+                                    "bought unit (verified)"
+                                };
+                                effect_verified = Some(true);
+                            }
+                            Ok(_) => {
+                                // Buy input sent but no gold/shop change detected
+                                reward = -0.5;
+                                note = "buy unverified (no effect detected)";
+                                effect_verified = Some(false);
+                            }
+                            Err(e) => {
+                                reward = -0.8;
+                                note = "buy verify error";
+                                effect_verified = Some(false);
+                                let _ = e; // log if needed
+                            }
+                        }
                     }
                     Err(_e) => {
                         reward = -1.0;
-                        note = "buy failed";
+                        note = "buy failed (input error)";
+                        effect_verified = Some(false);
                     }
                 }
             }
@@ -326,6 +385,21 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
                 reward = 0.1;
                 note = "hold_gold";
             }
+            DiscreteAction::ChooseAugment0
+            | DiscreteAction::ChooseAugment1
+            | DiscreteAction::ChooseAugment2 => {
+                let slot = (action as u16) - 15; // ChooseAugment0=15 -> slot 0
+                match self.input.click_augment(window, slot as u8) {
+                    Ok(()) => {
+                        reward = 1.5;
+                        note = "augment chosen";
+                    }
+                    Err(_e) => {
+                        reward = -1.0;
+                        note = "augment click failed";
+                    }
+                }
+            }
             _ => {
                 // Other actions not yet implemented on real machine
                 reward = -1.0;
@@ -340,13 +414,7 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
         } else {
             "shop" // simplified; phase detector provides real phase in run-afk
         };
-        // Track verified for buy actions
-        let verified = if matches!(action, DiscreteAction::BuySlot0 | DiscreteAction::BuySlot1 | DiscreteAction::BuySlot2 | DiscreteAction::BuySlot3 | DiscreteAction::BuySlot4) {
-            Some(reward > -0.5) // reward > -0.5 means buy succeeded
-        } else {
-            None
-        };
-        self.record_trajectory(action, reward, &shop, phase_str, verified);
+        self.record_trajectory(action, reward, &shop, phase_str, effect_verified);
         self.last_shop = shop.clone();
         self.last_gold = gold;
 
@@ -362,6 +430,7 @@ impl<W: WindowDiscovery, O: OcrEngine, I: InputDispatcher> TftEnv for RealEnv<W,
             "gold": gold,
             "total_reward": self.total_reward,
             "curriculum": format!("{:?}", self.curriculum_phase),
+            "effect_verified": effect_verified,
         });
 
         StepResult {
@@ -419,5 +488,8 @@ fn is_real_machine_action(action: DiscreteAction) -> bool {
             | DiscreteAction::SellWeakest
             | DiscreteAction::SellWeakestBoard
             | DiscreteAction::HoldGold
+            | DiscreteAction::ChooseAugment0
+            | DiscreteAction::ChooseAugment1
+            | DiscreteAction::ChooseAugment2
     )
 }
